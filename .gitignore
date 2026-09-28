@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Models (never commit large GGUF artifacts)
+*.gguf
+models/
+
+# Env / secrets
+.env
+*.local
+
+# ArgoCD repository credentials — never commit the real thing.
+# The *.example.yaml templates ARE committed; filled-in copies are not.
+repo-secret.yaml
+*-secret.yaml
+!*-secret.example.yaml
+*.pem
+*.key
+argocd_*
+!argocd_*.example
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# kiro
+.kiro

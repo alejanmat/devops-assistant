@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: models-pvc
+  namespace: compute
+  labels:
+    app.kubernetes.io/part-of: home-lab-rag
+    cluster: compute
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      # Holds both GGUF models (Qwen2.5-1.5B ~1.1GB + nomic-embed ~0.3GB)
+      # plus headroom for future model versions.
+      storage: 8Gi

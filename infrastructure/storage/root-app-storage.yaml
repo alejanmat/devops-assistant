@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cluster-storage-orchestrator
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    # CHANGE ME: point at your fork of the monorepo.
+    repoURL: 'https://github.com/alejanmat/devops-assistant.git'
+    targetRevision: HEAD
+    path: infrastructure/storage
+    directory:
+      recurse: true
+      exclude: 'root-app-storage.yaml'
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: storage
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

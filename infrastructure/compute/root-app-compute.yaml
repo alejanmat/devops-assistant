@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cluster-compute-orchestrator
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    # CHANGE ME: point at your fork of the monorepo.
+    repoURL: 'https://github.com/alejanmat/devops-assistant.git'
+    targetRevision: HEAD
+    path: infrastructure/compute
+    directory:
+      recurse: true
+      # Do not let ArgoCD try to sync itself via the root Application manifest.
+      exclude: 'root-app-compute.yaml'
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: compute
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

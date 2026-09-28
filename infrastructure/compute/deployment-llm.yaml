@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llama-llm-deployment
+  namespace: compute
+  labels:
+    app: llama-llm
+    app.kubernetes.io/part-of: home-lab-rag
+spec:
+  replicas: 1
+  # Recreate avoids two llama-server pods competing for the single models-pvc
+  # (ReadWriteOnce) and for the 2 physical CPU cores during a rollout.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: llama-llm
+  template:
+    metadata:
+      labels:
+        app: llama-llm
+    spec:
+      initContainers:
+        - name: download-model
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              MODEL=/models/qwen2.5-1.5b-instruct-q4_k_m.gguf
+              URL=https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf
+              if [ ! -f "$MODEL" ]; then
+                echo "Downloading Qwen2.5-1.5B GGUF model..."
+                wget -q -O "$MODEL" "$URL"
+                echo "Download complete."
+              else
+                echo "Model already exists. Skipping download."
+              fi
+          volumeMounts:
+            - name: models-volume
+              mountPath: /models
+      containers:
+        - name: llama-server
+          image: ghcr.io/ggml-org/llama.cpp:server
+          command: ["/app/llama-server"]
+          args:
+            - "-m"
+            - "/models/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8080"
+            - "-c"
+            - "2048"   # Restricted context window for low RAM/CPU load
+            - "-t"
+            - "2"      # Restrict to 2 threads to fit the 2-core CPU
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            limits:
+              memory: "2.0Gi"
+              cpu: "2.0"
+            requests:
+              memory: "1.0Gi"
+              cpu: "1.0"
+          volumeMounts:
+            - name: models-volume
+              mountPath: /models
+      volumes:
+        - name: models-volume
+          persistentVolumeClaim:
+            claimName: models-pvc

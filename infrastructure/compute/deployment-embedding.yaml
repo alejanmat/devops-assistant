@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llama-embedding-deployment
+  namespace: compute
+  labels:
+    app: llama-embedding
+    app.kubernetes.io/part-of: home-lab-rag
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: llama-embedding
+  template:
+    metadata:
+      labels:
+        app: llama-embedding
+    spec:
+      initContainers:
+        - name: download-model
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              MODEL=/models/nomic-embed-text-v1.5.Q4_K_M.gguf
+              URL=https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf
+              if [ ! -f "$MODEL" ]; then
+                echo "Downloading nomic-embed-text-v1.5 GGUF model..."
+                wget -q -O "$MODEL" "$URL"
+                echo "Download complete."
+              else
+                echo "Model already exists. Skipping download."
+              fi
+          volumeMounts:
+            - name: models-volume
+              mountPath: /models
+      containers:
+        - name: llama-server
+          image: ghcr.io/ggml-org/llama.cpp:server
+          command: ["/app/llama-server"]
+          args:
+            - "-m"
+            - "/models/nomic-embed-text-v1.5.Q4_K_M.gguf"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8080"
+            - "-c"
+            - "2048"
+            - "-t"
+            - "2"
+            - "--embedding"   # Run llama-server in embedding mode
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 45
+            periodSeconds: 30
+          resources:
+            limits:
+              memory: "768Mi"
+              cpu: "1.0"
+            requests:
+              memory: "384Mi"
+              cpu: "0.25"
+          volumeMounts:
+            - name: models-volume
+              mountPath: /models
+      volumes:
+        - name: models-volume
+          persistentVolumeClaim:
+            claimName: models-pvc

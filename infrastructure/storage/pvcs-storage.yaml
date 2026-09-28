@@ -1,0 +1,17 @@
+# Redis persistence volume. Qdrant uses a volumeClaimTemplate inside its
+# StatefulSet, so it does not need a standalone PVC here.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: storage
+  labels:
+    app: redis
+    app.kubernetes.io/part-of: home-lab-rag
+    cluster: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
