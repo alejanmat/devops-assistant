@@ -54,8 +54,8 @@ cd apps/rag-backend
 # login a GHCR (serve un Personal Access Token con scope write:packages)
 echo "<il-tuo-github-token>" | docker login ghcr.io -u <tuo-username-github> --password-stdin
 
-docker build -t ghcr.io/<tuo-username-github>/home-lab-rag-backend:latest .
-docker push ghcr.io/<tuo-username-github>/home-lab-rag-backend:latest
+docker build -t ghcr.io/<tuo-username-github>/devops-rag-backend:latest .
+docker push ghcr.io/<tuo-username-github>/devops-rag-backend:latest
 ```
 
 In alternativa, lascia fare alla pipeline CI/CD già presente
@@ -79,7 +79,7 @@ va modificato). Per questo deploy single-cluster su OCI usa invece:
 
 **Unica cosa da modificare a mano** in `deployment-app.oci.yaml`:
 ```yaml
-image: ghcr.io/<tuo-username-github>/home-lab-rag-backend:latest
+image: ghcr.io/<tuo-username-github>/devops-rag-backend:latest
 ```
 sostituisci `<tuo-username-github>` con l'immagine che hai buildato/pushato
 al punto 2.

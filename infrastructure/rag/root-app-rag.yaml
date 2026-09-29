@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rag-backend-orchestrator
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/alejanmat/devops-assistant.git'
+    targetRevision: HEAD
+    # Punta SOLO ai manifest adattati per il cluster singolo OCI, non a
+    # apps/rag-backend/k8s/ (che contiene anche deployment-app.yaml, il
+    # template per il design multi-cluster Tailscale, da non sincronizzare qui).
+    path: apps/rag-backend/k8s/oci
+    directory:
+      recurse: true
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: devops-rag
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
