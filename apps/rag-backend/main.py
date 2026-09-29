@@ -1,4 +1,4 @@
-"""Home Lab RAG backend — Ticino River (Pavia) fishing guide.
+"""Home Lab RAG backend — Kubernetes learning assistant.
 
 A minimal, dependency-light Retrieval-Augmented Generation API that ties
 together the low-resource services described in the HLD:
@@ -8,10 +8,10 @@ together the low-resource services described in the HLD:
   * Vector DB  -> Qdrant on the storage cluster
   * Chat state -> Redis on the storage cluster
 
-This instance is specialised as an expert assistant on **fishing techniques
-for the Ticino River around Pavia, Italy**. On startup it loads the local
-`knowledge_base/` documents, chunks and embeds them, and upserts them into the
-Qdrant collection so `/chat` can answer grounded questions immediately.
+This instance is specialised as an expert assistant on **Kubernetes
+concepts and workflows**. On startup it loads the local `knowledge_base/`
+documents, chunks and embeds them, and upserts them into the Qdrant
+collection so `/chat` can answer grounded questions immediately.
 
 All service endpoints are reachable across clusters over the Tailscale mesh via
 the NodePorts declared in the infrastructure manifests. Everything is
@@ -50,7 +50,7 @@ EMBEDDING_BASE_URL = os.getenv(
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant-nodeport.storage:6333")
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis-nodeport.storage:6379/0")
 
-COLLECTION = os.getenv("QDRANT_COLLECTION", "ticino_fishing")
+COLLECTION = os.getenv("QDRANT_COLLECTION", "k8s_guide")
 # nomic-embed-text-v1.5 produces 768-dimensional vectors.
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))
 TOP_K = int(os.getenv("RAG_TOP_K", "4"))
@@ -65,25 +65,27 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "150"))
 # Below this best-match cosine score, treat the question as out of scope.
 MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.35"))
 
-# Domain-specialised system prompt: a Ticino/Pavia fishing expert.
+# Domain-specialised system prompt: a Kubernetes learning assistant.
 SYSTEM_PROMPT = (
-    "You are 'Ticino Angler', an expert fishing guide specialised in the "
-    "Ticino River around Pavia, in Lombardy, Italy, and the surrounding Parco "
-    "Lombardo della Valle del Ticino. You advise anglers on techniques, target "
-    "species, tackle, bait, seasons, water conditions, access points, and local "
-    "regulations for this river.\n"
+    "You are 'K8s Guide', an expert Kubernetes instructor. You help users "
+    "understand Kubernetes concepts, components, and workflows: what "
+    "Kubernetes is, its components, creating clusters, kubectl, Pods and "
+    "Nodes, Deployments, exposing apps with Services, scaling, rolling "
+    "updates, configuration, security, stateless vs stateful workloads, and "
+    "cluster management.\n"
     "Rules:\n"
     "1. Answer ONLY using the provided context passages from the knowledge base. "
-    "Do not invent facts, spots, or figures that are not supported by the context.\n"
+    "Do not invent commands, flags, or behaviour that are not supported by "
+    "the context.\n"
     "2. If the context does not cover the question, say you don't have that "
-    "information for the Ticino at Pavia, and suggest what the angler could ask "
-    "instead — do not guess.\n"
-    "3. If the question is unrelated to fishing the Ticino near Pavia, politely "
-    "explain that you only cover that topic.\n"
-    "4. Be practical and concise. Use the species' Italian names where the "
-    "context provides them (e.g. luccio, siluro, cavedano, aspio).\n"
-    "5. When advice touches licences, closed seasons, sizes or protected zones, "
-    "remind the angler to verify current local rules before fishing."
+    "information, and suggest what the user could ask instead — do not guess.\n"
+    "3. If the question is unrelated to Kubernetes, politely explain that "
+    "you only cover that topic.\n"
+    "4. Be practical and concise. Include exact command names (e.g. kubectl, "
+    "minikube) where the context provides them.\n"
+    "5. When advice touches production security or cluster-critical "
+    "operations, remind the user to validate against their own cluster's "
+    "version and policies before applying it."
 )
 
 
@@ -192,32 +194,40 @@ def _stable_point_id(source: str, index: int) -> str:
 
 
 def load_kb_documents(directory: pathlib.Path) -> list[tuple[str, str, int]]:
-    """Load and chunk every knowledge-base document in ``directory``.
+    """Load and chunk every knowledge-base document under ``directory``, recursively.
 
-    Only ``*.md`` and ``*.txt`` files are read; the index ``README.md`` is
-    skipped because it describes the corpus rather than being content. Each file
-    is chunked with :func:`chunk_text`.
+    Only ``*.md`` and ``*.txt`` files are read. The top-level index file
+    ``<directory>/README.md`` is skipped because it describes the corpus
+    rather than being content; ``README.md`` files in subdirectories ARE
+    included (a corpus organized as ``<topic>/README.md`` is a valid layout).
+    Each file is chunked with :func:`chunk_text`.
 
     Args:
         directory: Path to the knowledge-base folder.
 
     Returns:
-        A list of ``(chunk_text, source_filename, chunk_index)`` tuples in
-        deterministic (sorted-filename, ascending-index) order. Returns an empty
+        A list of ``(chunk_text, source, chunk_index)`` tuples in
+        deterministic (sorted-path, ascending-index) order, where ``source``
+        is the file's path relative to ``directory`` (unique even when
+        multiple subdirectories contain a same-named file). Returns an empty
         list if ``directory`` does not exist.
     """
     docs: list[tuple[str, str, int]] = []
     if not directory.is_dir():
         logger.warning("Knowledge-base directory %s not found; skipping.", directory)
         return docs
-    for path in sorted(directory.iterdir()):
+    root_readme = (directory / "README.md").resolve()
+    for path in sorted(directory.rglob("*")):
+        if not path.is_file():
+            continue
         if path.suffix.lower() not in (".md", ".txt"):
             continue
-        if path.name.lower() == "readme.md":
-            continue  # index file, not knowledge content
+        if path.resolve() == root_readme:
+            continue  # top-level index file, not knowledge content
+        source = str(path.relative_to(directory))
         text = path.read_text(encoding="utf-8")
         for i, chunk in enumerate(chunk_text(text)):
-            docs.append((chunk, path.name, i))
+            docs.append((chunk, source, i))
     return docs
 
 
@@ -289,7 +299,7 @@ async def lifespan(_: FastAPI):
                 "Knowledge-base auto-ingest failed (%s); "
                 "call POST /reindex once the embedding service is up.", exc
             )
-    logger.info("Ticino fishing RAG backend ready.")
+    logger.info("Kubernetes RAG backend ready.")
     yield
     await clients.http.aclose()
     await clients.qdrant.close()
@@ -297,9 +307,9 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="Ticino River Fishing RAG Backend",
+    title="Kubernetes Guide RAG Backend",
     version="1.1.0",
-    summary="Expert Q&A on fishing techniques for the Ticino River at Pavia, Italy.",
+    summary="Expert Q&A on Kubernetes concepts and workflows.",
     lifespan=lifespan,
 )
 
@@ -325,7 +335,7 @@ class IngestRequest(BaseModel):
 class ChatRequest(BaseModel):
     """Request body for ``POST /chat``."""
 
-    message: str = Field(..., min_length=1, description="The angler's question.")
+    message: str = Field(..., min_length=1, description="The user's question.")
     session_id: str | None = Field(
         default=None,
         description="Existing session ID to continue a conversation; a new one "
@@ -497,12 +507,13 @@ async def reindex() -> dict[str, Any]:
 
 @app.get("/sources")
 async def sources() -> dict[str, Any]:
-    """List the knowledge-base source files currently on disk."""
+    """List the knowledge-base source files currently on disk (recursively)."""
+    root_readme = (KB_DIR / "README.md").resolve()
     files = (
         sorted(
-            p.name
-            for p in KB_DIR.iterdir()
-            if p.suffix.lower() in (".md", ".txt") and p.name.lower() != "readme.md"
+            str(p.relative_to(KB_DIR))
+            for p in KB_DIR.rglob("*")
+            if p.is_file() and p.suffix.lower() in (".md", ".txt") and p.resolve() != root_readme
         )
         if KB_DIR.is_dir()
         else []

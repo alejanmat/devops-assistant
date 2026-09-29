@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: rag-backend
-  namespace: rag
+  namespace: devops-rag
   labels:
     app: rag-backend
     app.kubernetes.io/part-of: home-lab-rag
@@ -16,10 +16,12 @@ spec:
       labels:
         app: rag-backend
     spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
         - name: rag-backend
           # CHANGE ME: <tuo-username-github>, dopo aver fatto build+push su GHCR.
-          image: ghcr.io/<tuo-username-github>/home-lab-rag-backend:latest
+          image: ghcr.io/alejanmat/devops-rag-backend:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
@@ -37,7 +39,7 @@ spec:
             - name: EMBEDDING_DIM
               value: "768"
             - name: QDRANT_COLLECTION
-              value: "ticino_fishing"
+              value: "k8s_guide"
             # Auto-load the baked-in knowledge_base/ on startup. If the
             # embedding service is not ready yet, call POST /reindex later.
             - name: KB_AUTO_INGEST
@@ -66,7 +68,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: rag-backend
-  namespace: rag
+  namespace: devops-rag
   labels:
     app: rag-backend
     app.kubernetes.io/part-of: home-lab-rag
